@@ -103,7 +103,7 @@ public class DingtalkIdentityProvider extends AbstractOAuth2IdentityProvider imp
     @Override
     protected BrokeredIdentityContext extractIdentityFromProfile(EventBuilder event, JsonNode profile) {
         // https://open.dingtalk.com/document/orgapp/dingtalk-retrieve-user-information#h2-tvg-cb5-her
-        BrokeredIdentityContext user = new BrokeredIdentityContext(getJsonProperty(profile, "openId"));
+        BrokeredIdentityContext user = new BrokeredIdentityContext(getJsonProperty(profile, "unionId")); // unionId or openId
 
         String username = getJsonProperty(profile, "mobile"); // 钉钉只支持手机号注册
         user.setUsername(username);
