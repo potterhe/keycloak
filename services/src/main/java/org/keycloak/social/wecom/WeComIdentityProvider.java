@@ -40,6 +40,8 @@ public class WeComIdentityProvider extends AbstractOAuth2IdentityProvider implem
 
     public static final String AUTH_URL = "https://open.weixin.qq.com/connect/oauth2/authorize";
     public static final String TOKEN_URL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken";
+    public static final String CODE2USERID_URL = "https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo";
+    public static final String PROFILE_URL = "https://qyapi.weixin.qq.com/cgi-bin/user/get";
 
     public static final String DEFAULT_SCOPE = "snsapi_base";
 
@@ -88,8 +90,19 @@ public class WeComIdentityProvider extends AbstractOAuth2IdentityProvider implem
 
     @Override
     public BrokeredIdentityContext getFederatedIdentity(String response) {
-        // 根据文档 https://developer.work.weixin.qq.com/document/path/98176
-        // 返回的是 userid
+        // https://developer.work.weixin.qq.com/document/path/98176
+        // todo check errcode，
+        // 全局错误码 https://developer.work.weixin.qq.com/document/path/90455
+        Integer errCode = Integer.parseInt(extractTokenFromResponse(response, "errcode"));
+        if (errCode != 0) {
+            // access_token 可能提前失效，开发者应实现access_token失效时重新获取的逻辑。
+            if (errCode == 40014 || errCode == 42001) {
+                // todo 重新获取access_token
+            }
+            throw new IdentityBrokerException("WeCom code2userid errcode != 0, response: " + response);
+        }
+
+        // todo Webview(企微内) 和 Web端(浏览器) 需要做差异化处理。
         String userId = extractTokenFromResponse(response, "userid");
         if (userId == null) {
             throw new IdentityBrokerException("No userid available in OAuth server response: " + response);
@@ -97,20 +110,19 @@ public class WeComIdentityProvider extends AbstractOAuth2IdentityProvider implem
 
         String accessToken = getAccessToken();
         if (accessToken == null) {
-            throw new IdentityBrokerException("No access token available in OAuth server response: " + response);
+            throw new IdentityBrokerException("No access token available");
         }
 
         // access-token + userid 获取用户
         BrokeredIdentityContext context = doGetFederatedIdentity2(accessToken, userId);
-        context.getContextData().put(FEDERATED_ACCESS_TOKEN, accessToken);
+        // context.getContextData().put(FEDERATED_ACCESS_TOKEN, accessToken);
         return context;
     }
 
     protected BrokeredIdentityContext doGetFederatedIdentity2(String accessToken, String userId) {
         // https://developer.work.weixin.qq.com/document/path/90196
-        String profileUrl = "https://qyapi.weixin.qq.com/cgi-bin/user/get";
         try {
-            SimpleHttp.Response response = SimpleHttp.doGet(profileUrl, session)
+            SimpleHttp.Response response = SimpleHttp.doGet(PROFILE_URL, session)
                     .param("access_token", accessToken)
                     .param("userid", userId)
                     .asResponse();
@@ -122,6 +134,7 @@ public class WeComIdentityProvider extends AbstractOAuth2IdentityProvider implem
 
             JsonNode profile = response.asJson();
             logger.tracef("profile retrieved from wecom: %s", profile);
+            // todo 异常处理 errcode
             BrokeredIdentityContext user = extractIdentityFromProfile(null, profile);
             return user;
 
@@ -189,9 +202,8 @@ public class WeComIdentityProvider extends AbstractOAuth2IdentityProvider implem
         @Override
         public SimpleHttp generateTokenRequest(String authorizationCode) {
             // https://developer.work.weixin.qq.com/document/path/98176
-            String useridUrl = "https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo";
-
-            SimpleHttp tokenRequest = SimpleHttp.doGet(useridUrl, session)
+            // https://developer.work.weixin.qq.com/document/path/91023
+            SimpleHttp tokenRequest = SimpleHttp.doGet(CODE2USERID_URL, session)
                     .param(OAUTH2_PARAMETER_CODE, authorizationCode)
                     .param("access_token", provider.getAccessToken());
 
